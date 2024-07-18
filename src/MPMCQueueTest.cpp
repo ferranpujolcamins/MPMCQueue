@@ -149,6 +149,20 @@ int main(int argc, char *argv[]) {
   }
 
   {
+    int id = -1;
+    auto consumer = [&id](int, int i) noexcept {
+      assert(i > id);
+      id = i;
+    };
+
+    MPMCQueue<int> q(16);
+    q.push(1);
+    q.push(2);
+    q.push(3);
+    assert(q.try_consume_until_current_head_order(consumer) == true);
+  }
+
+  {
     bool throws = false;
     try {
       MPMCQueue<int> q(0);

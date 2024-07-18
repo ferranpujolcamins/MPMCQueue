@@ -283,6 +283,37 @@ public:
     return consumedSomething;
   }
 
+  // TODO: Add template wizardry to avoid having a second function
+  template <typename Consumer> bool try_consume_until_current_head_order(Consumer &&c) noexcept {
+#ifdef __cpp_lib_is_invocable
+    static_assert(std::is_nothrow_invocable_v<Consumer, T &&, int>,
+                  "Consumer must be noexcept invocable with T&& and int");
+#endif
+    bool consumedSomething = false;
+    const auto head = head_.load(std::memory_order_acquire);
+    auto tail = tail_.load(std::memory_order_acquire);
+    while (tail < head) {
+      auto &slot = slots_[idx(tail)];
+      if (turn(tail) * 2 + 1 == slot.turn.load(std::memory_order_acquire)) {
+        if (tail_.compare_exchange_strong(tail, tail + 1)) {
+          static_assert(noexcept(c(slot.move(), tail)),
+                        "Consumer must be noexcept invocable with T&&");
+          c(slot.move(), tail);
+          slot.destroy();
+          slot.turn.store(turn(tail) * 2 + 2, std::memory_order_release);
+          consumedSomething = true;
+        }
+      } else {
+        auto const prevTail = tail;
+        tail = tail_.load(std::memory_order_acquire);
+        if (tail == prevTail) {
+          return consumedSomething;
+        }
+      }
+    }
+    return consumedSomething;
+  }
+
 private:
   constexpr size_t idx(size_t i) const noexcept { return i % capacity_; }
 
